@@ -1,0 +1,14 @@
+import api from '../lib/api';
+import type { Doctor } from '../types';
+
+export const doctorService = {
+    getAllDoctors: async (): Promise<Doctor[]> => {
+        const response = await api.get('/api/v1/doctors');
+        return response.data.data;
+    },
+
+    createDoctor: async (doctorData: Omit<Doctor, '_id'>): Promise<Doctor> => {
+        const response = await api.post('/api/v1/doctors', doctorData);
+        return response.data.data;
+    }
+};
