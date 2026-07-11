@@ -59,4 +59,28 @@ const getDoctors = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, doctors, "Doctors fetched successfully", { page, limit, total }));
 });
 
-export { createDoctor, getDoctors };
+const updateDoctorSchedule = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { workingDays, sessions, slotDuration, breaks } = req.body;
+
+    const doctor = await Doctor.findByIdAndUpdate(
+        id,
+        {
+            $set: {
+                workingDays,
+                sessions,
+                slotDuration,
+                breaks
+            }
+        },
+        { new: true, runValidators: true }
+    );
+
+    if (!doctor) {
+        throw new ApiError(404, "Doctor not found");
+    }
+
+    return res.status(200).json(new ApiResponse(200, doctor, "Doctor schedule updated successfully"));
+});
+
+export { createDoctor, getDoctors, updateDoctorSchedule };

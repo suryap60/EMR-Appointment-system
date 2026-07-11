@@ -4,7 +4,6 @@ import Doctor from "../models/doctor.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import mongoose from "mongoose";
 
 const emitUpdate = (req, eventName, payload) => {
     const io = req.app.get("io");
@@ -91,11 +90,15 @@ const getAppointments = asyncHandler(async (req, res) => {
     }
 
     // Patient Searching requires lookup or filtering on populated path.
-    // For scale, we should find matching patients first, then use their IDs
     if (patientName || mobileNumber) {
-        const pQuery = {};
-        if (patientName) pQuery.name = { $regex: patientName, $options: "i" };
-        if (mobileNumber) pQuery.mobileNumber = mobileNumber;
+        const pQuery = { $or: [] };
+        if (patientName) {
+            pQuery.$or.push({ name: { $regex: patientName, $options: "i" } });
+            pQuery.$or.push({ mobileNumber: { $regex: patientName, $options: "i" } });
+        }
+        if (mobileNumber) {
+            pQuery.$or.push({ mobileNumber: { $regex: mobileNumber, $options: "i" } });
+        }
 
         const matchingPatients = await Patient.find(pQuery).select("_id");
         filter.patient = { $in: matchingPatients.map(p => p._id) };
@@ -120,11 +123,16 @@ const getAppointments = asyncHandler(async (req, res) => {
 });
 
 const updateAppointment = asyncHandler(async (req, res) => {
-    const { purpose, notes } = req.body;
+    const { purpose, notes, status } = req.body;
+
+    const updateFields = {};
+    if (purpose !== undefined) updateFields.purpose = purpose;
+    if (notes !== undefined) updateFields.notes = notes;
+    if (status !== undefined) updateFields.status = status;
 
     const appointment = await Appointment.findByIdAndUpdate(
         req.params.id,
-        { $set: { purpose, notes } }, // Only allow these to be modified natively
+        { $set: updateFields },
         { new: true }
     ).populate("patient");
 

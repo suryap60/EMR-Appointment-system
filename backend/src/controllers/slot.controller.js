@@ -35,12 +35,11 @@ const getAvailableSlots = asyncHandler(async (req, res) => {
 
     // Filter out booked slots
     const availableSlots = generatedSlots.filter(s => !bookedTimeStrings.includes(s.start));
+    const bookedSlots = generatedSlots.filter(s => bookedTimeStrings.includes(s.start));
 
-    // Support getting all slots grouped by status? Problem says "Display Available Slots, Booked Slots"
-    // Just respond with both
     const results = {
         available: availableSlots,
-        booked: bookedTimeStrings
+        booked: bookedSlots
     }
 
     return res.status(200).json(new ApiResponse(200, results, "Slots fetched successfully"));

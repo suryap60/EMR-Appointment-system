@@ -1,43 +1,35 @@
 # Engineering Decisions
 
 ### Why did you choose your project architecture?
-I went with a layered separation of concerns (Routers -> Controllers -> Services/Utils -> Models). 
-- **Controllers** are kept thin and strictly handle HTTP concerns. 
-- **Middlewares** like `verifyJWT`, `restrictTo`, and the `auditLogger` decouple security logic from business logic.
-- Standardized responses via `ApiResponse` and `ApiError` ensure consistent JSON structure across all endpoints.
-- **Frontend Layer**: I implemented a strict `Types -> Service Client -> Redux Thunk -> Component View` pattern in React to completely decouple business network logic from UI rendering, heavily leveraging `dayjs` and `react-hook-form` to optimize validation performance without cascading re-renders.
+I went with a classic tiered architecture (Router -> Controller -> Service -> Model) because it's predictable, highly testable, and makes onboarding easier. I kept the Express controllers extremely thin—they basically just parse the request, pass it to the business logic, and format the response. I pushed repetitive stuff like role checks, JWT validation, and error handling entirely into middlewares. This means we're not constantly repeating `if (!req.user)` in every route. On the frontend, I used a strict Redux flow separated from the UI components. This allowed me to throw things like real-time socket events straight into a Redux event bus without tangling up React's render cycles.
 
 ### How did you design your MongoDB schema?
-The database was highly normalized with clear mappings. The `Doctor` schema contains scheduling configs (availability, sessions, break durations) independently. The `User` schema contains only auth logic. 
+Normalization where it counts, embedding where it makes sense. I intentionally decoupled the `Doctor` schedule configurations (working days, break times, session lengths) from the generic `User` auth schema. This ensures auth logic doesn't load a massive chunk of scheduling metadata into memory on every generic login. For appointments, they reference both the patient and doctor via ObjectId rather than embedding, since patients and doctors are independent core entities that need to be queried from dozens of different relational contexts (like "My Patients" vs "Global Patient Directory").
 
 ### How did you prevent double booking?
-Concurrency was handled entirely in the Database layer using a native MongoDB Compound Unique Index on the `Appointment` collection:
-```javascript
-appointmentSchema.index({ doctor: 1, date: 1, startTime: 1 }, { unique: true });
-```
-When two users try to book exactly the same slot simultaneously via HTTP requests, Node.js fires them into the DB connection pool. MongoDB leverages its native locking system on index constraint insertion, causing exactly one document to succeed and throwing `MongoServerError: 11000 (Duplicate Key)` for the trailing request. We catch this exact error in our async controller and return a clean `409 Conflict`. 
+I didn't trust application-level checks for concurrency because Node is asynchronous and two HTTP requests can hit the exact same validation block milliseconds apart. Instead, I offloaded this to MongoDB itself using a compound unique index: 
+`appointmentSchema.index({ doctor: 1, date: 1, startTime: 1 }, { unique: true });`
+If two people try to snag the exact same time slot at the exact same millisecond, MongoDB's native lock handles it locally on insertion. One succeeds, the other throws a `11000 Duplicate Key` error. We just catch that specific error code in the controller and spit out a clean 409 Conflict to the user. It's foolproof and requires zero clunky external system locks.
 
 ### Which database indexes did you create and why?
-- `userSchema.index({ email: 1 }, { unique: true })`
-- `appointmentSchema.index({ doctor: 1, date: 1, startTime: 1 }, { unique: true })` for concurrency locking.
-- `appointmentSchema.index({ date: 1, status: 1 })` for optimal retrieval during dashboard aggregation.
-- `patientSchema.index({ name: 'text', mobileNumber: 'text', patientId: 'text' })` to support complex searching. 
+Beyond the obvious unique `email` index on users:
+- The big one is the compound unique index on `{ doctor: 1, date: 1, startTime: 1 }` strictly to solve double-booking.
+- I indexed `{ date: 1, status: 1 }` on appointments because the dashboard aggregates "Today's Scheduled/Arrived" appointments constantly. Doing a full collection scan for a daily dashboard widget would cripple the database at scale.
+- I set up text indexes on `{ name: 'text', mobileNumber: 'text', patientId: 'text' }` for patients so the receptionists can instantly search massive patient lists without relying on slow regex queries that bypass indexing.
 
 ### What security measures did you implement?
-- **RBAC**: A strict `restrictTo(...roles)` factory middleware.
-- **Passwords**: Bcrypt with Salt factor 10.
-- **Tokens**: Dual token system (Access Token for short term 10mins + HTTPOnly Secure Refresh Token for 7d).
-- **Helmet**: Native protection against XSS and clickjacking.
+- **RBAC**: A dynamic `restrictTo` middleware that strictly locks down routes to specific string roles.
+- **Tokens**: We don't just use one infinite JWT. I set up a dual-token system. The access token dies quickly, while the refresh token lives longer (7 days) and is locked inside an HTTP-only secure cookie so XSS injected scripts physically cannot touch it.
+- **Axios Interceptors**: The frontend automatically rotates expired tokens in the background seamlessly, heavily utilizing Redux local storage linking to ensure page refreshes don't accidentally load dropped auth states.
+- **Passwords**: Standard Bcrypt encryption. Any plaintext is killed at the model level before saving.
 
 ### What performance optimizations did you apply?
-- Extracted dynamic slot generation into the backend rather than keeping it inside MongoDB aggregation logic, saving DB CPU cycles.
-- Paginated Appointment searching endpoints natively through MongoDB `skip` and `limit`.
+- Extracted the dynamic slot calculation (cutting up standard blocks and omitting breaks) to the Node backend instead of trying to make MongoDB aggregations do it. Node easily crushes JavaScript array manipulations, whereas asking Mongo to build custom arrays per request is expensive.
+- Bypassed REST API polling entirely. I hooked up Socket.io on the backend to shoot updates directly into the frontend's Redux state cache. When an appointment is modified, the grids synthetically mutate instantaneously without triggering any new HTTP query requests. That cuts API bandwidth traffic down immensely.
 
 ### If this application needed to support millions of appointments, what architectural changes would you make?
-1. **Caching**: Redis should cache the `Doctor` schedule configs since they rarely change. 
-2. **MQ Integration**: Extract Audit logging from a Middleware to an independent RabbitMQ/Kafka queue to unblock the Express thread pool completely.
-3. **Database Sharding**: Shard MongoDB based on `date` and `doctorId`. 
-4. **WebSocket Segregation**: Move Socket.IO into its own scaled out Microservice via Redis Pub/Sub adapter to prevent state drift amongst nodes.
-
-### Engineering Challenge: Real-Time Appointment Sync
-To solve the **WebSockets** requirement while preventing duplicate concurrency requests from colliding on the frontend, I utilized `Socket.IO` emitting `appointmentCreated` globally. When the React `Scheduler.tsx` component catches this event and validates the date/doctor payload matches the currently viewed Grid, it silently re-fetches the dynamic generated slots API. This gracefully and instantly updates the DOM to show the new blocked slots (colored Red) for all receptionists seamlessly without page reloads or conflicting state mutation.
+A monolith is fine for now, but at millions of records, it’ll choke. Here’s what I'd change:
+1. **Caching**: I'd throw Redis in front of the Doctor schedules. Schedule rules rarely change, but they get queried every single time someone views a calendar grid somewhere in the app. 
+2. **Database Sharding**: A single replica set won't hold millions of appointments efficiently. I'd shard the MongoDB cluster using a compound key of `{ doctorId, date }` to ensure queries for a specific doctor's schedule heavily hit a single localized shard.
+3. **Queueing**: Audit logging and email/SMS notifications for bookings need to get ripped out of the critical path. I'd dump those payloads into an SQS or RabbitMQ queue immediately and let a background worker process them so the HTTP response stays sub-100ms.
+4. **WebSocket Scaling**: With multiple Node instances sitting behind a load balancer, standard Socket.io breaks (rooms aren't shared). I'd have to drop in the Redis Pub/Sub adapter so nodes can successfully broadcast events across the entire cluster.

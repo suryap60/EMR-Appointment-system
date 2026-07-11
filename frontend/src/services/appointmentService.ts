@@ -32,5 +32,10 @@ export const appointmentService = {
     cancelAppointment: async (id: string) => {
         const response = await api.delete(`/api/v1/appointments/${id}`);
         return response.data;
+    },
+
+    updateAppointment: async (id: string, updates: any) => {
+        const response = await api.put(`/api/v1/appointments/${id}`, updates);
+        return response.data;
     }
 };

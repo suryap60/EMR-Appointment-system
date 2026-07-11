@@ -14,6 +14,10 @@ export interface Doctor {
     qualifications: string[];
     experience: number;
     consultationFee: number;
+    workingDays?: string[];
+    sessions?: { start: string; end: string }[];
+    slotDuration?: number;
+    breaks?: { start: string; end: string }[];
     scheduleConfig?: any;
     createdAt?: string;
     updatedAt?: string;

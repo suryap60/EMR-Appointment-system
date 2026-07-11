@@ -13,11 +13,21 @@ interface AuthState {
     isAuthenticated: boolean;
 }
 
-const initialState: AuthState = {
-    user: null,
-    token: null,
-    isAuthenticated: false,
+const getInitialState = (): AuthState => {
+    const saved = localStorage.getItem('auth');
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch { }
+    }
+    return {
+        user: null,
+        token: null,
+        isAuthenticated: false,
+    };
 };
+
+const initialState: AuthState = getInitialState();
 
 const authSlice = createSlice({
     name: 'auth',
@@ -30,11 +40,13 @@ const authSlice = createSlice({
             state.user = action.payload.user;
             state.token = action.payload.accessToken;
             state.isAuthenticated = true;
+            localStorage.setItem('auth', JSON.stringify(state));
         },
         logout: (state) => {
             state.user = null;
             state.token = null;
             state.isAuthenticated = false;
+            localStorage.removeItem('auth');
         },
     },
 });

@@ -6,7 +6,7 @@ const router = Router();
 
 // Only Super Admins can manage receptionists
 router.use(verifyJWT);
-router.use(restrictTo("SUPER_ADMIN"));
+router.use(restrictTo("SUPER_ADMIN", "ADMIN", "admin"));
 
 router.route("/")
     .get(getReceptionists)
