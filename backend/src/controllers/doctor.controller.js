@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 
 const createDoctor = asyncHandler(async (req, res) => {
     // Only Super Admin can do this based on RBAC logic, assumed already guarded by middleware
-    const { name, email, password, department, workingDays, sessions, slotDuration, breaks } = req.body;
+    const { name, email, password, department, workingDays, sessions, slotDuration, breaks, specialization, experience, consultationFee, qualifications } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) throw new ApiError(400, "User with this email already exists");
@@ -24,6 +24,10 @@ const createDoctor = asyncHandler(async (req, res) => {
         createdDoctor = new Doctor({
             user: createdUser._id,
             department,
+            specialization,
+            experience,
+            consultationFee,
+            qualifications,
             workingDays,
             sessions,
             slotDuration,

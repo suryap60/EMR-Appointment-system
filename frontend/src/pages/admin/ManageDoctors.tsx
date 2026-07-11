@@ -13,8 +13,10 @@ const ManageDoctors: React.FC = () => {
     const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm();
 
     useEffect(() => {
-        dispatch(fetchDoctors());
-    }, [dispatch]);
+        if (doctors.length === 0) {
+            dispatch(fetchDoctors());
+        }
+    }, [dispatch, doctors.length]);
 
     const onSubmit = async (data: any) => {
         try {
@@ -131,10 +133,10 @@ const ManageDoctors: React.FC = () => {
                                         </td>
                                         <td className="py-3 px-5">
                                             <p className="font-medium text-slate-700">{doc.department}</p>
-                                            <p className="text-xs text-slate-500">{doc.specialization}</p>
+                                            <p className="text-xs text-slate-500">{doc.specialization || 'General'}</p>
                                         </td>
-                                        <td className="py-3 px-5 text-slate-700 font-medium">{doc.experience} Years</td>
-                                        <td className="py-3 px-5 text-slate-700 font-medium">${doc.consultationFee}</td>
+                                        <td className="py-3 px-5 text-slate-700 font-medium">{doc.experience || 0} Years</td>
+                                        <td className="py-3 px-5 text-slate-700 font-medium">${doc.consultationFee || 0}</td>
                                     </tr>
                                 ))
                             )}
