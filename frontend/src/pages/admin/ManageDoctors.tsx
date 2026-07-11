@@ -102,6 +102,7 @@ const ManageDoctors: React.FC = () => {
                     <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                             <tr>
+                                <th className="font-semibold py-3 px-5">Sl. No.</th>
                                 <th className="font-semibold py-3 px-5">Doctor Name</th>
                                 <th className="font-semibold py-3 px-5">Department</th>
                                 <th className="font-semibold py-3 px-5">Experience</th>
@@ -110,20 +111,21 @@ const ManageDoctors: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {loading ? (
-                                <tr><td colSpan={4} className="py-8 text-center text-slate-500">Loading doctors...</td></tr>
+                                <tr><td colSpan={5} className="py-8 text-center text-slate-500">Loading doctors...</td></tr>
                             ) : doctors.length === 0 ? (
-                                <tr><td colSpan={4} className="py-8 text-center text-slate-500">No doctors onboarded yet.</td></tr>
+                                <tr><td colSpan={5} className="py-8 text-center text-slate-500">No doctors onboarded yet.</td></tr>
                             ) : (
-                                doctors.map((doc) => (
+                                doctors.map((doc, index) => (
                                     <tr key={doc._id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="py-3 px-5 font-mono text-xs text-slate-500">{index + 1}</td>
                                         <td className="py-3 px-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                                                    {doc.user?.name?.charAt(0) || 'D'}
+                                                    {(doc.user as any)?.name?.charAt(0) || 'D'}
                                                 </div>
                                                 <div>
-                                                    <p className="font-semibold text-slate-800">{doc.user?.name}</p>
-                                                    <p className="text-xs text-slate-500">{doc.user?.email}</p>
+                                                    <p className="font-semibold text-slate-800">{(doc.user as any)?.name}</p>
+                                                    <p className="text-xs text-slate-500">{(doc.user as any)?.email}</p>
                                                 </div>
                                             </div>
                                         </td>

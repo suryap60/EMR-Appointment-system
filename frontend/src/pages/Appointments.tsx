@@ -15,6 +15,11 @@ const Appointments: React.FC = () => {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
 
+    // Edit state
+    const [editingAppointment, setEditingAppointment] = useState<any>(null);
+    const [editPurpose, setEditPurpose] = useState('');
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
+
     // Filters
     const [filters, setFilters] = useState({
         doctorId: '',
@@ -62,6 +67,33 @@ const Appointments: React.FC = () => {
         }, 300);
         return () => clearTimeout(timer);
     }, [filters, page]);
+
+    const lastSocketEvent = useSelector((state: RootState) => state.appointments?.lastIncomingEvent);
+
+    useEffect(() => {
+        if (!lastSocketEvent) return;
+
+        setAppointments(prev => {
+            const { eventType, payload } = lastSocketEvent;
+
+            // Simplified Real-Time Updates without Network Fetching!
+            if (eventType === 'CREATED') {
+                // Prepend to top of list
+                const newer = [payload, ...prev];
+                return newer.slice(0, 10);
+            }
+            if (eventType === 'UPDATED') {
+                return prev.map(a => a._id === payload._id ? payload : a);
+            }
+            if (eventType === 'CANCELLED') {
+                return prev.map(a =>
+                    a._id === payload._id ? { ...a, status: 'Cancelled' } : a
+                );
+            }
+
+            return prev;
+        });
+    }, [lastSocketEvent]);
 
     const handleArrive = async (id: string) => {
         try {
@@ -157,6 +189,7 @@ const Appointments: React.FC = () => {
                     <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                             <tr>
+                                <th className="font-semibold py-3 px-5">Sl. No.</th>
                                 <th className="font-semibold py-3 px-5">Date & Time</th>
                                 <th className="font-semibold py-3 px-5">Patient</th>
                                 <th className="font-semibold py-3 px-5">Doctor</th>
@@ -167,12 +200,13 @@ const Appointments: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {loading && appointments.length === 0 ? (
-                                <tr><td colSpan={6} className="py-12 text-center text-slate-500">Loading appointments...</td></tr>
+                                <tr><td colSpan={7} className="py-12 text-center text-slate-500">Loading appointments...</td></tr>
                             ) : appointments.length === 0 ? (
-                                <tr><td colSpan={6} className="py-12 text-center text-slate-500">No appointments found matching your filters.</td></tr>
+                                <tr><td colSpan={7} className="py-12 text-center text-slate-500">No appointments found matching your filters.</td></tr>
                             ) : (
-                                appointments.map((apt) => (
+                                appointments.map((apt, index) => (
                                     <tr key={apt._id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="py-3 px-5 font-mono text-xs text-slate-500">{index + 1 + (page - 1) * 10}</td>
                                         <td className="py-3 px-5">
                                             <div className="font-semibold text-slate-800">{dayjs(apt.date).format('MMM D, YYYY')}</div>
                                             <div className="text-xs text-indigo-600 font-bold">{apt.startTime} - {apt.endTime}</div>
@@ -206,9 +240,30 @@ const Appointments: React.FC = () => {
                                                 </button>
                                             )}
                                             {apt.status !== 'Cancelled' && apt.status !== 'Completed' && (
-                                                <button onClick={() => handleCancel(apt._id)} className="px-3 py-1 bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-600 rounded text-xs transition">
-                                                    Cancel
-                                                </button>
+                                                <>
+                                                    <button onClick={async () => {
+                                                        if (confirm("Mark as completed?")) {
+                                                            try {
+                                                                await appointmentService.updateAppointment(apt._id, { status: 'Completed' });
+                                                                toast.success("Appointment completed");
+                                                                loadAppointments();
+                                                            } catch (error: any) {
+                                                                toast.error(error.response?.data?.message || 'Update failed');
+                                                            }
+                                                        }
+                                                    }} className="px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-xs transition">
+                                                        Complete
+                                                    </button>
+                                                    <button onClick={() => {
+                                                        setEditingAppointment(apt);
+                                                        setEditPurpose(apt.purpose || '');
+                                                    }} className="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded text-xs transition">
+                                                        Edit
+                                                    </button>
+                                                    <button onClick={() => handleCancel(apt._id)} className="px-3 py-1 bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-600 rounded text-xs transition">
+                                                        Cancel
+                                                    </button>
+                                                </>
                                             )}
                                         </td>
                                     </tr>
@@ -241,6 +296,50 @@ const Appointments: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Edit Modal Overlay */}
+            {editingAppointment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden fade-in relative">
+                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-slate-800">Edit Appointment</h3>
+                            <button onClick={() => setEditingAppointment(null)} className="text-slate-400 hover:text-slate-600 font-bold">&times;</button>
+                        </div>
+                        <div className="p-6">
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">Purpose of Visit</label>
+                            <input
+                                className="input-field w-full"
+                                value={editPurpose}
+                                onChange={e => setEditPurpose(e.target.value)}
+                                placeholder="Update purpose..."
+                                autoFocus
+                            />
+                            <div className="flex justify-end gap-3 mt-6">
+                                <button type="button" onClick={() => setEditingAppointment(null)} className="btn-secondary">Cancel</button>
+                                <button
+                                    onClick={async () => {
+                                        setIsSavingEdit(true);
+                                        try {
+                                            await appointmentService.updateAppointment(editingAppointment._id, { purpose: editPurpose });
+                                            toast.success("Appointment updated");
+                                            setEditingAppointment(null);
+                                            loadAppointments();
+                                        } catch (e: any) {
+                                            toast.error(e.response?.data?.message || 'Update failed');
+                                        } finally {
+                                            setIsSavingEdit(false);
+                                        }
+                                    }}
+                                    disabled={isSavingEdit}
+                                    className="btn-primary min-w-[100px]"
+                                >
+                                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

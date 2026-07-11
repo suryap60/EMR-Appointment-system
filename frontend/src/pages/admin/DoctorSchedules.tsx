@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchDoctors } from '../../redux/slices/doctorSlice';
+import { doctorService } from '../../services/doctorService';
 import type { AppDispatch, RootState } from '../../redux/store';
 
 const DoctorSchedules: React.FC = () => {
@@ -11,26 +12,35 @@ const DoctorSchedules: React.FC = () => {
     const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Schedule config state matching the requirement
+    // Schedule config state
     const [config, setConfig] = useState({
-        slotDurationBase: 15, // Minutes
-        workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-        sessions: [
-            { id: 1, name: 'Morning Session', start: '09:00', end: '12:00' },
-            { id: 2, name: 'Evening Session', start: '13:00', end: '17:00' }
-        ],
-        breaks: [
-            { id: 1, name: 'Lunch Break', start: '12:00', end: '13:00' }
-        ]
+        slotDurationBase: 15 as number,
+        workingDays: [] as string[],
+        sessions: [] as { id: number; name: string; start: string; end: string }[],
+        breaks: [] as { id: number; name: string; start: string; end: string }[]
     });
 
     useEffect(() => {
         if (doctors.length === 0) dispatch(fetchDoctors());
     }, [dispatch, doctors.length]);
 
-    // In a real app we'd fetch the saved config for the selected doctor here.
-    // For the UI challenge, we allow configuring and PUTting to an endpoint.
-    // Since backend structure is out of scope to modify deeply here, we will mock the save success as an administrative operation.
+    useEffect(() => {
+        if (selectedDoctorId) {
+            const doctor = doctors.find(d => d._id === selectedDoctorId);
+            if (doctor) {
+                setConfig({
+                    slotDurationBase: doctor.slotDuration || 15,
+                    workingDays: doctor.workingDays || [],
+                    sessions: doctor.sessions?.length ? doctor.sessions.map((s: any, i: number) => ({ id: Date.now() + i, name: `Session ${i + 1}`, start: s.start, end: s.end })) : [
+                        { id: Date.now(), name: 'Morning Session', start: '09:00', end: '12:00' }
+                    ],
+                    breaks: doctor.breaks?.length ? doctor.breaks.map((b: any, i: number) => ({ id: Date.now() + i + 100, name: `Break ${i + 1}`, start: b.start, end: b.end })) : [
+                        { id: Date.now() + 100, name: 'Lunch Break', start: '12:00', end: '13:00' }
+                    ]
+                });
+            }
+        }
+    }, [selectedDoctorId, doctors]);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -41,15 +51,21 @@ const DoctorSchedules: React.FC = () => {
 
         setIsSaving(true);
         try {
-            // Simulated endpoint for updating schedule config based on Enterprise requirements
-            // await api.put(`/api/v1/doctors/${selectedDoctorId}/schedule`, config);
+            const payload = {
+                workingDays: config.workingDays,
+                slotDuration: config.slotDurationBase,
+                sessions: config.sessions.map(s => ({ start: s.start, end: s.end })),
+                breaks: config.breaks.map(b => ({ start: b.start, end: b.end }))
+            };
 
-            // The assignment says "implement schedule management". 
-            // We simulate the success of the architecture decision.
-            await new Promise(r => setTimeout(r, 800));
+            await doctorService.updateDoctorSchedule(selectedDoctorId, payload);
+
+            // Re-fetch to update redux state
+            dispatch(fetchDoctors());
+
             toast.success("Schedule configuration locked and saved securely.");
         } catch (error: any) {
-            toast.error("Failed to save schedule");
+            toast.error(error.response?.data?.message || "Failed to save schedule");
         } finally {
             setIsSaving(false);
         }
@@ -61,6 +77,50 @@ const DoctorSchedules: React.FC = () => {
             workingDays: prev.workingDays.includes(day)
                 ? prev.workingDays.filter(d => d !== day)
                 : [...prev.workingDays, day]
+        }));
+    };
+
+    // Sessions Handlers
+    const addSession = () => {
+        setConfig(prev => ({
+            ...prev,
+            sessions: [...prev.sessions, { id: Date.now(), name: `Session ${prev.sessions.length + 1}`, start: '09:00', end: '12:00' }]
+        }));
+    };
+
+    const updateSession = (id: number, field: string, value: string) => {
+        setConfig(prev => ({
+            ...prev,
+            sessions: prev.sessions.map(s => s.id === id ? { ...s, [field]: value } : s)
+        }));
+    };
+
+    const removeSession = (id: number) => {
+        setConfig(prev => ({
+            ...prev,
+            sessions: prev.sessions.filter(s => s.id !== id)
+        }));
+    };
+
+    // Breaks Handlers
+    const addBreak = () => {
+        setConfig(prev => ({
+            ...prev,
+            breaks: [...prev.breaks, { id: Date.now(), name: `Break ${prev.breaks.length + 1}`, start: '12:00', end: '13:00' }]
+        }));
+    };
+
+    const updateBreak = (id: number, field: string, value: string) => {
+        setConfig(prev => ({
+            ...prev,
+            breaks: prev.breaks.map(b => b.id === id ? { ...b, [field]: value } : b)
+        }));
+    };
+
+    const removeBreak = (id: number) => {
+        setConfig(prev => ({
+            ...prev,
+            breaks: prev.breaks.filter(b => b.id !== id)
         }));
     };
 
@@ -132,7 +192,7 @@ const DoctorSchedules: React.FC = () => {
                             {/* Slot Duration */}
                             <div>
                                 <label className="block text-sm font-semibold text-slate-700 mb-2">Generated Slot Duration</label>
-                                <div className="flex gap-4">
+                                <div className="flex flex-wrap gap-4">
                                     {[15, 20, 30, 60].map(mins => (
                                         <label key={mins} className="flex items-center gap-2 text-sm font-medium text-slate-600 cursor-pointer">
                                             <input
@@ -150,28 +210,42 @@ const DoctorSchedules: React.FC = () => {
 
                             {/* Sessions */}
                             <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-slate-700">Active Sessions</label>
-                                {config.sessions.map((session, idx) => (
-                                    <div key={session.id} className="flex gap-4 items-center">
-                                        <input className="input-field w-1/3 text-sm" value={session.name} readOnly />
-                                        <input type="time" className="input-field text-sm" value={session.start} readOnly />
-                                        <span className="text-slate-400 font-medium">to</span>
-                                        <input type="time" className="input-field text-sm" value={session.end} readOnly />
+                                <div className="flex justify-between items-center">
+                                    <label className="block text-sm font-semibold text-slate-700">Active Sessions</label>
+                                    <button type="button" onClick={addSession} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition">+ Add Session</button>
+                                </div>
+                                {config.sessions.map((session) => (
+                                    <div key={session.id} className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
+                                        <input className="input-field w-full sm:w-1/3 text-sm" value={session.name} onChange={e => updateSession(session.id, 'name', e.target.value)} />
+                                        <input type="time" className="input-field w-full sm:w-auto text-sm" value={session.start} onChange={e => updateSession(session.id, 'start', e.target.value)} required />
+                                        <span className="text-slate-400 font-medium hidden sm:block">to</span>
+                                        <input type="time" className="input-field w-full sm:w-auto text-sm" value={session.end} onChange={e => updateSession(session.id, 'end', e.target.value)} required />
+                                        <button type="button" onClick={() => removeSession(session.id)} className="text-rose-500 hover:text-rose-700 text-xs font-bold px-2">X</button>
                                     </div>
                                 ))}
+                                {config.sessions.length === 0 && (
+                                    <p className="text-xs text-slate-400">No sessions configured. Doctor will not have any generated slots.</p>
+                                )}
                             </div>
 
                             {/* Breaks */}
                             <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-slate-700">Scheduled Breaks <span className="text-xs text-rose-500 font-normal ml-2">(Slots will never generate here)</span></label>
-                                {config.breaks.map((brk, idx) => (
-                                    <div key={brk.id} className="flex gap-4 items-center">
-                                        <input className="input-field w-1/3 text-sm bg-rose-50/50" value={brk.name} readOnly />
-                                        <input type="time" className="input-field text-sm" value={brk.start} readOnly />
-                                        <span className="text-slate-400 font-medium">to</span>
-                                        <input type="time" className="input-field text-sm" value={brk.end} readOnly />
+                                <div className="flex justify-between items-center">
+                                    <label className="block text-sm font-semibold text-slate-700">Scheduled Breaks <span className="text-xs text-rose-500 font-normal ml-2">(Slots will never generate here)</span></label>
+                                    <button type="button" onClick={addBreak} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition">+ Add Break</button>
+                                </div>
+                                {config.breaks.map((brk) => (
+                                    <div key={brk.id} className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
+                                        <input className="input-field w-full sm:w-1/3 text-sm bg-rose-50/50" value={brk.name} onChange={e => updateBreak(brk.id, 'name', e.target.value)} />
+                                        <input type="time" className="input-field w-full sm:w-auto text-sm" value={brk.start} onChange={e => updateBreak(brk.id, 'start', e.target.value)} required />
+                                        <span className="text-slate-400 font-medium hidden sm:block">to</span>
+                                        <input type="time" className="input-field w-full sm:w-auto text-sm" value={brk.end} onChange={e => updateBreak(brk.id, 'end', e.target.value)} required />
+                                        <button type="button" onClick={() => removeBreak(brk.id)} className="text-rose-500 hover:text-rose-700 text-xs font-bold px-2">X</button>
                                     </div>
                                 ))}
+                                {config.breaks.length === 0 && (
+                                    <p className="text-xs text-slate-400">No breaks configured.</p>
+                                )}
                             </div>
                         </div>
 
@@ -182,7 +256,7 @@ const DoctorSchedules: React.FC = () => {
                                 disabled={isSaving || !selectedDoctorId}
                                 className="btn-primary w-full md:w-auto md:min-w-[200px]"
                             >
-                                {isSaving ? 'Updating Schedule Constraints...' : 'Save Configuration'}
+                                {isSaving ? 'Updating Schedule...' : 'Save Configuration'}
                             </button>
                         </div>
                     </form>

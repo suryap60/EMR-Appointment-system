@@ -1,22 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
 import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchDoctors } from '../redux/slices/doctorSlice';
 import { slotService } from '../services/slotService';
 import { appointmentService } from '../services/appointmentService';
+import { patientService } from '../services/patientService';
 import type { AppDispatch, RootState } from '../redux/store';
-import type { Doctor } from '../types';
 
 interface SlotData {
     available: { start: string; end: string }[];
-    booked: string[];
+    booked: { start: string; end: string }[];
 }
 
 const Scheduler: React.FC = () => {
     const dispatch = useDispatch<AppDispatch>();
-    const { doctors, loading: doctorsLoading } = useSelector((state: RootState) => state.doctors);
+    const { doctors } = useSelector((state: RootState) => state.doctors);
 
     // Core selection state
     const [selectedDoctor, setSelectedDoctor] = useState<string>('');
@@ -36,6 +35,25 @@ const Scheduler: React.FC = () => {
         purpose: ''
     });
     const [isBooking, setIsBooking] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [showDropdown, setShowDropdown] = useState(false);
+
+    useEffect(() => {
+        if (bookingDetails.patientType === 'existing' && searchTerm.trim().length > 0) {
+            const timer = setTimeout(async () => {
+                try {
+                    const results = await patientService.searchPatients(searchTerm);
+                    setSearchResults(results);
+                } catch (error) {
+                    console.error(error);
+                }
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            setSearchResults([]);
+        }
+    }, [searchTerm, bookingDetails.patientType]);
 
     useEffect(() => {
         if (doctors.length === 0) {
@@ -43,34 +61,20 @@ const Scheduler: React.FC = () => {
         }
     }, [dispatch, doctors.length]);
 
-    // Setup WebSocket and load slots
+    const lastSocketEvent = useSelector((state: RootState) => state.appointments?.lastIncomingEvent);
+
     useEffect(() => {
-        const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000', {
-            transports: ['websocket'],
-            withCredentials: true
-        });
+        if (!lastSocketEvent) return;
 
-        socket.on('connect', () => console.log('WebSocket Connected!'));
-
-        // When a new appointment is created anywhere, refresh slots if it matches our view
-        const handleLiveUpdate = (appointment: any) => {
-            if (appointment.doctor === selectedDoctor) {
-                // If it falls on the same date, re-fetch the grid to show it as Booked
-                const eventDate = dayjs(appointment.date).format('YYYY-MM-DD');
-                if (eventDate === selectedDate) {
-                    toast('Live Update: Slot was just booked/modified by another user.', { icon: '🔄' });
-                    fetchSlots();
-                }
+        const { payload } = lastSocketEvent;
+        if (payload.doctor === selectedDoctor) {
+            const eventDate = dayjs(payload.date).format('YYYY-MM-DD');
+            if (eventDate === selectedDate) {
+                toast.success('Live Update: Slot was just booked/modified by another user.', { icon: '🔄' });
+                fetchSlots();
             }
-        };
-
-        socket.on('appointmentCreated', handleLiveUpdate);
-        socket.on('appointmentCancelled', handleLiveUpdate);
-
-        return () => {
-            socket.disconnect();
-        };
-    }, [selectedDoctor, selectedDate]);
+        }
+    }, [lastSocketEvent, selectedDoctor, selectedDate]);
 
     useEffect(() => {
         if (selectedDoctor && selectedDate) {
@@ -213,13 +217,14 @@ const Scheduler: React.FC = () => {
                                     </button>
                                 ))}
 
-                                {slots.booked.map((timeStr, idx) => (
+                                {slots.booked.map((slot, idx) => (
                                     <div
                                         key={`booked-${idx}`}
                                         className="px-3 py-2 text-sm font-medium rounded-lg border bg-rose-50 border-rose-100 text-rose-400 cursor-not-allowed opacity-50 text-center flex flex-col justify-center line-through"
                                         title="Slot is already booked."
                                     >
-                                        {timeStr}
+                                        <span>{slot.start}</span>
+                                        <span className="text-xs">{slot.end}</span>
                                     </div>
                                 ))}
 
@@ -289,15 +294,38 @@ const Scheduler: React.FC = () => {
                                         </>
                                     ) : (
                                         <>
-                                            <div>
-                                                <label className="block text-sm text-slate-600 mb-1">Search Patient ID *</label>
+                                            <div className="relative col-span-1 md:col-span-2">
+                                                <label className="block text-sm text-slate-600 mb-1">Search Patient Name or Mobile *</label>
                                                 <input
                                                     required
                                                     className="input-field bg-white w-full"
-                                                    value={bookingDetails.patientId}
-                                                    onChange={e => setBookingDetails(prev => ({ ...prev, patientId: e.target.value }))}
-                                                    placeholder="PAT-123456"
+                                                    value={searchTerm}
+                                                    onChange={e => {
+                                                        setSearchTerm(e.target.value);
+                                                        setShowDropdown(true);
+                                                    }}
+                                                    onFocus={() => setShowDropdown(true)}
+                                                    onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                                                    placeholder="e.g. John Doe or +1 234 567 8900"
                                                 />
+                                                {showDropdown && searchResults.length > 0 && (
+                                                    <div className="absolute z-10 w-full bg-white border border-slate-200 mt-1 rounded-lg shadow-lg">
+                                                        {searchResults.map(p => (
+                                                            <div
+                                                                key={p._id}
+                                                                className="px-4 py-2 hover:bg-slate-50 cursor-pointer"
+                                                                onMouseDown={() => {
+                                                                    setBookingDetails(prev => ({ ...prev, name: p.name, mobileNumber: p.mobileNumber, patientId: p.patientId }));
+                                                                    setSearchTerm(`${p.name} - ${p.mobileNumber}`);
+                                                                    setShowDropdown(false);
+                                                                }}
+                                                            >
+                                                                <div className="font-semibold text-slate-800">{p.name}</div>
+                                                                <div className="text-xs text-slate-500">{p.mobileNumber}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         </>
                                     )}
