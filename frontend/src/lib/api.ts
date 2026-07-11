@@ -100,6 +100,14 @@ api.interceptors.response.use(
                     localStorage.setItem("refreshToken", newRefreshToken);
                 }
 
+                // Update Redux 'auth' persist cache automatically to prevent F5 reverting to invalidate token
+                const savedAuth = localStorage.getItem('auth');
+                if (savedAuth) {
+                    const parsedAuth = JSON.parse(savedAuth);
+                    parsedAuth.token = newAccessToken;
+                    localStorage.setItem('auth', JSON.stringify(parsedAuth));
+                }
+
                 // Update default header
                 api.defaults.headers.common["Authorization"] = `Bearer ${newAccessToken}`;
 

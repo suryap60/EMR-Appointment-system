@@ -6,7 +6,7 @@ import { useDispatch } from 'react-redux';
 import { setCredentials } from '../redux/slices/authSlice';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { authService } from '../services/authService';
+import api from '../lib/api';
 
 const loginSchema = z.object({
     email: z.string().email('Please enter a valid email'),
@@ -26,13 +26,13 @@ const Login: React.FC = () => {
     const onSubmit = async (data: LoginFormValues) => {
         setIsLoading(true);
         try {
-            const res = await authService.login(data);
+            const res = await api.post('/api/v1/auth/login', data);
 
             // Save tokens for the axios interceptor
-            localStorage.setItem("accessToken", res.data.accessToken);
-            localStorage.setItem("refreshToken", res.data.refreshToken);
+            localStorage.setItem("accessToken", res.data.data.accessToken);
+            localStorage.setItem("refreshToken", res.data.data.refreshToken);
 
-            dispatch(setCredentials({ user: res.data.user, accessToken: res.data.accessToken }));
+            dispatch(setCredentials({ user: res.data.data.user, accessToken: res.data.data.accessToken }));
             toast.success('Signed in successfully');
             navigate('/');
         } catch (err: any) {
